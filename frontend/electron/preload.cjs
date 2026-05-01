@@ -1,0 +1,9 @@
+const { contextBridge, ipcRenderer } = require("electron");
+
+contextBridge.exposeInMainWorld("appAuth", {
+  getPublicConfig: () => ipcRenderer.invoke("app:getPublicConfig"),
+  get: () => ipcRenderer.invoke("auth:get"),
+  set: (payload) => ipcRenderer.invoke("auth:set", payload),
+  clear: () => ipcRenderer.invoke("auth:clear"),
+  validate: (payload) => ipcRenderer.invoke("api:validate", payload),
+});

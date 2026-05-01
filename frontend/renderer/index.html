@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' http: https:;" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Accounting</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <section id="screen-login" class="screen" hidden>
+        <div class="card">
+          <h1>AI Accounting</h1>
+          <p class="muted" id="login-server-hint"></p>
+          <form id="form-login">
+            <label>
+              <span>API key</span>
+              <input id="input-api-key" type="password" placeholder="ak_…" autocomplete="off" required />
+            </label>
+            <p id="login-error" class="error" role="alert" hidden></p>
+            <button type="submit" id="btn-login" class="primary">Connect</button>
+          </form>
+        </div>
+      </section>
+
+      <section id="screen-app" class="screen screen-app" hidden>
+        <aside class="sidebar">
+          <div class="brand">AI Accounting</div>
+          <nav>
+            <button type="button" class="nav-item active" data-view="home">Home</button>
+          </nav>
+          <div class="sidebar-footer">
+            <div class="muted small" id="sidebar-api-base"></div>
+            <button type="button" id="btn-logout" class="ghost">Sign out</button>
+          </div>
+        </aside>
+        <main class="main">
+          <header class="main-header">
+            <h2 id="main-title">Home</h2>
+          </header>
+          <div id="view-home" class="view">
+            <p class="muted">Dashboard here. Company and Tally flows will be wired in after auth is stable.</p>
+          </div>
+        </main>
+      </section>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
