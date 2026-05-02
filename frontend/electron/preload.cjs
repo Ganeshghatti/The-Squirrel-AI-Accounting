@@ -6,4 +6,6 @@ contextBridge.exposeInMainWorld("appAuth", {
   set: (payload) => ipcRenderer.invoke("auth:set", payload),
   clear: () => ipcRenderer.invoke("auth:clear"),
   validate: (payload) => ipcRenderer.invoke("api:validate", payload),
+  apiRequest: (opts) => ipcRenderer.invoke("api:request", opts),
+  tallyListCompanies: () => ipcRenderer.invoke("tally:listCompanies"),
 });

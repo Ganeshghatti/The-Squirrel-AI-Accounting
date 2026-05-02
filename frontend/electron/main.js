@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import Store from "electron-store";
+import { settings_listCompaniesLoaded } from "../tally-xml-client/settings/crud.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
@@ -70,6 +71,60 @@ ipcMain.handle("auth:set", (_event, { apiKey }) => {
 
 ipcMain.handle("auth:clear", () => {
   authStore.set("apiKey", "");
+});
+
+ipcMain.handle("tally:listCompanies", async () => {
+  try {
+    return await settings_listCompaniesLoaded();
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Tally request failed";
+    return {
+      ok: false,
+      httpStatus: 0,
+      tallyStatus: null,
+      companies: [],
+      rawBody: "",
+      error: message,
+    };
+  }
+});
+
+/**
+ * Authenticated JSON request to ACCOUNTING_API_BASE (path must start with /).
+ * @param {{ method?: string, path: string, body?: object }} opts
+ */
+ipcMain.handle("api:request", async (_event, opts) => {
+  const key = authStore.get("apiKey");
+  const method = (opts?.method || "GET").toUpperCase();
+  const reqPath = String(opts?.path || "");
+  if (!reqPath.startsWith("/")) {
+    return { ok: false, status: 0, data: { error: "path must start with /" } };
+  }
+  if (!key) {
+    return { ok: false, status: 401, data: { error: "Not signed in" } };
+  }
+  try {
+    const url = `${defaultAccountingBase}${reqPath}`;
+    const headers = { "X-API-Key": key };
+    /** @type {RequestInit} */
+    const init = { method, headers };
+    if (opts?.body !== undefined && method !== "GET" && method !== "HEAD") {
+      headers["Content-Type"] = "application/json";
+      init.body = JSON.stringify(opts.body);
+    }
+    const res = await fetch(url, init);
+    const text = await res.text();
+    let data;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = text;
+    }
+    return { ok: res.ok, status: res.status, data };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Network error";
+    return { ok: false, status: 0, data: { error: message } };
+  }
 });
 
 ipcMain.handle("api:validate", async (_event, { apiKey }) => {

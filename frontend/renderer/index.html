@@ -31,16 +31,29 @@
             <button type="button" class="nav-item active" data-view="home">Home</button>
           </nav>
           <div class="sidebar-footer">
-            <div class="muted small" id="sidebar-api-base"></div>
             <button type="button" id="btn-logout" class="ghost">Sign out</button>
           </div>
         </aside>
         <main class="main">
           <header class="main-header">
-            <h2 id="main-title">Home</h2>
+            <h2 id="main-title">Dashboard</h2>
           </header>
-          <div id="view-home" class="view">
-            <p class="muted">Dashboard here. Company and Tally flows will be wired in after auth is stable.</p>
+          <div id="view-home" class="view view-dashboard">
+            <p id="dashboard-status" class="muted small" hidden></p>
+
+            <section class="dash-section">
+              <h3 class="dash-heading">Your companies</h3>
+              <p class="muted small dash-hint">From your account database. Click a card for details.</p>
+              <div id="dash-db-companies" class="card-grid"></div>
+              <p id="dash-db-empty" class="muted small" hidden>No companies yet. Add one from Tally below.</p>
+            </section>
+
+            <section class="dash-section">
+              <h3 class="dash-heading">Companies in Tally</h3>
+              <p class="muted small dash-hint">Loaded in Tally on this machine. Add to your database to link them.</p>
+              <div id="dash-tally-companies" class="card-grid"></div>
+              <p id="dash-tally-empty" class="muted small" hidden>Could not load Tally companies. Is Tally running with the XML server port?</p>
+            </section>
           </div>
         </main>
       </section>
