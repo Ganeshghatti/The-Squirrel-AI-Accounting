@@ -7,6 +7,7 @@ import {
   deleteCompany,
   connectMailbox,
   disconnectMailbox,
+  analyzeCompany,
 } from "../controllers/companyController.js";
 import { authenticate } from "../middleware/authenticate.js";
 
@@ -18,6 +19,7 @@ router.get("/", listCompanies);
 router.post("/", createCompany);
 router.post("/:id/mailboxes", connectMailbox);
 router.delete("/:id/mailboxes/:mailboxId", disconnectMailbox);
+router.post("/:id/analyze", analyzeCompany);
 router.get("/:id", getCompany);
 router.patch("/:id", updateCompany);
 router.delete("/:id", deleteCompany);

@@ -4,6 +4,10 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import Store from "electron-store";
 import { settings_listCompaniesLoaded } from "../tally-xml-client/settings/crud.js";
+import { ledger_readAll } from "../tally-xml-client/ledger/crud.js";
+import { stockItem_readAll } from "../tally-xml-client/stock-item/crud.js";
+import { unit_readAll } from "../tally-xml-client/unit/crud.js";
+import { voucher_readDayBook } from "../tally-xml-client/voucher/crud.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
@@ -86,6 +90,38 @@ ipcMain.handle("tally:listCompanies", async () => {
       rawBody: "",
       error: message,
     };
+  }
+});
+
+ipcMain.handle("tally:readLedgers", async (_e, { companyName }) => {
+  try {
+    return await ledger_readAll({ companyName });
+  } catch (e) {
+    return { ok: false, body: "", error: e instanceof Error ? e.message : "Tally request failed" };
+  }
+});
+
+ipcMain.handle("tally:readStockItems", async (_e, { companyName }) => {
+  try {
+    return await stockItem_readAll({ companyName });
+  } catch (e) {
+    return { ok: false, body: "", error: e instanceof Error ? e.message : "Tally request failed" };
+  }
+});
+
+ipcMain.handle("tally:readUnits", async (_e, { companyName }) => {
+  try {
+    return await unit_readAll({ companyName });
+  } catch (e) {
+    return { ok: false, body: "", error: e instanceof Error ? e.message : "Tally request failed" };
+  }
+});
+
+ipcMain.handle("tally:readDayBook", async (_e, { companyName, fromDate, toDate }) => {
+  try {
+    return await voucher_readDayBook({ companyName, fromDate, toDate });
+  } catch (e) {
+    return { ok: false, body: "", error: e instanceof Error ? e.message : "Tally request failed" };
   }
 });
 

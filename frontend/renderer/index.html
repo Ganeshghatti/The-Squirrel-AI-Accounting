@@ -36,6 +36,7 @@
         </aside>
         <main class="main">
           <header class="main-header">
+            <button type="button" id="btn-company-back" class="link-back ghost" hidden>← Dashboard</button>
             <h2 id="main-title">Dashboard</h2>
           </header>
           <div id="view-home" class="view view-dashboard">
@@ -43,7 +44,7 @@
 
             <section class="dash-section">
               <h3 class="dash-heading">Your companies</h3>
-              <p class="muted small dash-hint">From your account database. Click a card for details.</p>
+              <p class="muted small dash-hint">From your account database. Click a card to manage mailboxes.</p>
               <div id="dash-db-companies" class="card-grid"></div>
               <p id="dash-db-empty" class="muted small" hidden>No companies yet. Add one from Tally below.</p>
             </section>
@@ -55,8 +56,93 @@
               <p id="dash-tally-empty" class="muted small" hidden>Could not load Tally companies. Is Tally running with the XML server port?</p>
             </section>
           </div>
+
+          <div id="view-company" class="view view-company" hidden>
+            <p id="company-page-msg" class="company-page-msg" hidden></p>
+            <p id="company-page-desc" class="muted company-page-desc"></p>
+            <p id="company-page-tally" class="muted small" hidden></p>
+
+            <section class="company-section">
+              <div class="company-section-head">
+                <div>
+                  <h3 class="dash-heading">Connected email accounts</h3>
+                  <p class="muted small company-section-sub">All IMAP mailboxes linked to this company.</p>
+                </div>
+                <button type="button" id="btn-add-mailbox" class="primary btn-add-mailbox">Add mailbox</button>
+              </div>
+              <div id="company-mailboxes-list"></div>
+              <p id="company-mailboxes-empty" class="muted small" hidden>No mailboxes connected yet. Use Add mailbox to connect one.</p>
+            </section>
+
+            <section class="company-section" id="analyze-section">
+              <h3 class="dash-heading">Analyze</h3>
+              <p class="muted small company-section-sub">Select a mailbox above, pick a date range, then click Analyze to fetch Tally data and emails.</p>
+              <div class="date-range-row">
+                <label>
+                  <span>From</span>
+                  <input type="datetime-local" id="input-from-date" />
+                </label>
+                <label>
+                  <span>To</span>
+                  <input type="datetime-local" id="input-to-date" />
+                </label>
+              </div>
+              <button type="button" id="btn-analyze" class="primary">Analyze</button>
+            </section>
+          </div>
         </main>
       </section>
+    </div>
+
+    <div id="modal-mailbox" class="modal" hidden aria-hidden="true">
+      <div class="modal-backdrop" id="modal-mailbox-backdrop" tabindex="-1"></div>
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modal-mailbox-title">
+        <div class="modal-header">
+          <h3 id="modal-mailbox-title">Add mailbox</h3>
+          <button type="button" class="modal-close" id="btn-modal-mailbox-close" aria-label="Close">×</button>
+        </div>
+        <p class="muted small modal-intro">IMAP credentials (e.g. Gmail app password). Stored on the server for sync jobs.</p>
+        <p id="modal-mailbox-summary" class="modal-summary" hidden role="alert"></p>
+        <form id="form-mailbox-connect" novalidate>
+          <label>
+            <span>Label (optional)</span>
+            <input name="label" type="text" placeholder="Billing inbox" maxlength="120" autocomplete="off" />
+          </label>
+          <label>
+            <span>Email address</span>
+            <input name="emailAddress" type="email" inputmode="email" autocomplete="off" aria-describedby="mailbox-err-email" />
+            <span id="mailbox-err-email" class="field-error" hidden role="alert"></span>
+          </label>
+          <label>
+            <span>IMAP host</span>
+            <input name="imapHost" type="text" placeholder="imap.gmail.com" autocomplete="off" aria-describedby="mailbox-err-imapHost" />
+            <span id="mailbox-err-imapHost" class="field-error" hidden role="alert"></span>
+          </label>
+          <label>
+            <span>IMAP port</span>
+            <input name="imapPort" type="number" min="1" max="65535" value="993" aria-describedby="mailbox-err-imapPort" />
+            <span id="mailbox-err-imapPort" class="field-error" hidden role="alert"></span>
+          </label>
+          <label class="checkbox-label">
+            <input name="tls" type="checkbox" checked />
+            <span>Use TLS (SSL)</span>
+          </label>
+          <label>
+            <span>IMAP username</span>
+            <input name="username" type="text" autocomplete="off" aria-describedby="mailbox-err-username" />
+            <span id="mailbox-err-username" class="field-error" hidden role="alert"></span>
+          </label>
+          <label>
+            <span>Password / app password</span>
+            <input name="password" type="password" autocomplete="new-password" aria-describedby="mailbox-err-password" />
+            <span id="mailbox-err-password" class="field-error" hidden role="alert"></span>
+          </label>
+          <div class="modal-actions">
+            <button type="button" class="ghost" id="btn-modal-mailbox-cancel">Cancel</button>
+            <button type="submit" class="primary btn-mailbox-submit">Connect mailbox</button>
+          </div>
+        </form>
+      </div>
     </div>
 
     <script src="./app.js"></script>

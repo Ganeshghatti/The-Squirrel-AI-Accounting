@@ -24,6 +24,13 @@ const companySchema = new mongoose.Schema(
     owner: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     deletedAt: { type: Date, default: null },
     connectedMailboxes: { type: [imapMailboxSchema], default: [] },
+    /** Tally linkage (from List of Companies export) */
+    tallyGuid: { type: String, trim: true, default: "" },
+    tallyCompanyNumber: { type: String, trim: true, default: "" },
+    tallyReservedName: { type: String, trim: true, default: "" },
+    tallyBooksFrom: { type: String, trim: true, default: "" },
+    tallyStartingFrom: { type: String, trim: true, default: "" },
+    tallyEndingAt: { type: String, trim: true, default: "" },
   },
   { timestamps: true }
 );
