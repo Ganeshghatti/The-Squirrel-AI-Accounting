@@ -4,10 +4,11 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import Store from "electron-store";
 import { settings_listCompaniesLoaded } from "../tally-xml-client/settings/crud.js";
-import { ledger_readAll } from "../tally-xml-client/ledger/crud.js";
-import { stockItem_readAll } from "../tally-xml-client/stock-item/crud.js";
+import { ledger_readAll, ledger_createFull } from "../tally-xml-client/ledger/crud.js";
+import { stockItem_readAll, stockItem_createFull } from "../tally-xml-client/stock-item/crud.js";
 import { unit_readAll } from "../tally-xml-client/unit/crud.js";
-import { voucher_readDayBook } from "../tally-xml-client/voucher/crud.js";
+import { voucher_readDayBook, voucher_createPurchase } from "../tally-xml-client/voucher/crud.js";
+import { stockGroup_create } from "../tally-xml-client/stock-group/crud.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
@@ -120,6 +121,38 @@ ipcMain.handle("tally:readUnits", async (_e, { companyName }) => {
 ipcMain.handle("tally:readDayBook", async (_e, { companyName, fromDate, toDate }) => {
   try {
     return await voucher_readDayBook({ companyName, fromDate, toDate });
+  } catch (e) {
+    return { ok: false, body: "", error: e instanceof Error ? e.message : "Tally request failed" };
+  }
+});
+
+ipcMain.handle("tally:createLedger", async (_e, { companyName, params }) => {
+  try {
+    return await ledger_createFull({ companyName, ...params });
+  } catch (e) {
+    return { ok: false, body: "", error: e instanceof Error ? e.message : "Tally request failed" };
+  }
+});
+
+ipcMain.handle("tally:createStockCategory", async (_e, { companyName, params }) => {
+  try {
+    return await stockGroup_create({ companyName, ...params });
+  } catch (e) {
+    return { ok: false, body: "", error: e instanceof Error ? e.message : "Tally request failed" };
+  }
+});
+
+ipcMain.handle("tally:createStockItem", async (_e, { companyName, params }) => {
+  try {
+    return await stockItem_createFull({ companyName, name: params.name, parent: params.parent, baseUnits: params.base_units, ...params });
+  } catch (e) {
+    return { ok: false, body: "", error: e instanceof Error ? e.message : "Tally request failed" };
+  }
+});
+
+ipcMain.handle("tally:createPurchaseVoucher", async (_e, { companyName, params }) => {
+  try {
+    return await voucher_createPurchase({ companyName, ...params });
   } catch (e) {
     return { ok: false, body: "", error: e instanceof Error ? e.message : "Tally request failed" };
   }

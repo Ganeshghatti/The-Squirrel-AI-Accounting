@@ -31,6 +31,11 @@ const btnAddMailbox = document.getElementById("btn-add-mailbox");
 const btnAnalyze = document.getElementById("btn-analyze");
 const inputFromDate = document.getElementById("input-from-date");
 const inputToDate = document.getElementById("input-to-date");
+const actionsSection = document.getElementById("actions-section");
+const actionsSummary = document.getElementById("actions-summary");
+const actionsTbody = document.getElementById("actions-tbody");
+const actionsEmpty = document.getElementById("actions-empty");
+const btnSendToTally = document.getElementById("btn-send-to-tally");
 
 const MAILBOX_ERR_IDS = {
   emailAddress: "mailbox-err-email",
@@ -49,6 +54,8 @@ let currentCompanyId = null;
 let currentCompany = null;
 /** Lowercased emails already connected for the open company (duplicate check). */
 let connectedMailboxEmails = new Set();
+/** Actions waiting to be sent to Tally after analysis. */
+let pendingActions = [];
 
 const chevronSvg = `<svg class="card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>`;
 
@@ -126,6 +133,9 @@ function showDashboard() {
   currentCompanyId = null;
   currentCompany = null;
   connectedMailboxEmails = new Set();
+  pendingActions = [];
+  if (actionsSection) actionsSection.hidden = true;
+  if (actionsTbody) actionsTbody.innerHTML = "";
   viewHome.hidden = false;
   viewCompany.hidden = true;
   btnCompanyBack.hidden = true;
@@ -402,10 +412,133 @@ async function handleAnalyze() {
 
   btnAnalyze.disabled = false;
   if (res.ok) {
-    setCompanyPageMsg(`Analysis complete. ${res.data?.emailCount ?? 0} emails fetched.`, "ok");
+    const d = res.data;
+    setCompanyPageMsg(
+      `Analysis complete. ${d.emailCount ?? 0} emails scanned, ${d.invoiceCount ?? 0} invoices found.`,
+      "ok"
+    );
+    renderActionsTable(d.invoiceEmails ?? [], d.summary);
   } else {
     setCompanyPageMsg(res.data?.error || `Analysis failed (HTTP ${res.status})`, "error");
   }
+}
+
+function renderActionsTable(invoiceEmails, summary) {
+  actionsSection.hidden = false;
+  actionsTbody.innerHTML = "";
+  pendingActions = [];
+
+  if (!invoiceEmails.length) {
+    actionsEmpty.hidden = false;
+    actionsSummary.textContent = "No invoices found.";
+    btnSendToTally.disabled = true;
+    return;
+  }
+
+  actionsEmpty.hidden = true;
+  const totalActions = invoiceEmails.reduce((n, e) => n + (e.actions?.length ?? 0), 0);
+  actionsSummary.textContent = `${invoiceEmails.length} invoice email${invoiceEmails.length > 1 ? "s" : ""} · ${totalActions} action${totalActions !== 1 ? "s" : ""} to execute`;
+  btnSendToTally.disabled = false;
+
+  for (const email of invoiceEmails) {
+    const actions = Array.isArray(email.actions) ? email.actions : [];
+    if (!actions.length) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="actions-cell-email">${escapeHtml(email.subject || email.email_id)}</td>
+        <td>—</td>
+        <td>—</td>
+        <td class="muted">No actions generated (confidence: ${escapeHtml(email.actionConfidence ?? "?")})</td>
+        <td><span class="badge badge-muted">${escapeHtml(email.actionConfidence ?? "?")}</span></td>
+        <td>—</td>
+      `;
+      actionsTbody.appendChild(tr);
+      continue;
+    }
+
+    for (const action of actions) {
+      const rowId = `action-row-${pendingActions.length}`;
+      pendingActions.push({ invoiceEmail: email, action });
+
+      const description = buildActionDescription(action);
+      const tr = document.createElement("tr");
+      tr.id = rowId;
+      tr.dataset.idx = String(pendingActions.length - 1);
+      tr.innerHTML = `
+        <td class="actions-cell-email" title="${escapeHtml(email.email_id)}">${escapeHtml(email.subject || email.email_id)}</td>
+        <td class="actions-cell-order">${escapeHtml(String(action.order ?? ""))}</td>
+        <td><span class="action-badge action-badge-${escapeHtml(action.action ?? "")}">${escapeHtml(action.action ?? "")}</span></td>
+        <td class="actions-cell-desc">${escapeHtml(description)}</td>
+        <td><span class="badge ${email.actionConfidence === "high" ? "" : "badge-muted"}">${escapeHtml(email.actionConfidence ?? "?")}</span></td>
+        <td class="actions-cell-status" id="${rowId}-status">Pending</td>
+      `;
+      actionsTbody.appendChild(tr);
+    }
+  }
+}
+
+function buildActionDescription(action) {
+  const p = action.params ?? {};
+  switch (action.action) {
+    case "create_ledger":
+      return `Ledger: ${p.name ?? "?"} (${p.parent ?? "?"})`;
+    case "create_stock_category":
+      return `Stock group: ${p.name ?? "?"} under ${p.parent ?? "Primary"}`;
+    case "create_stock_item":
+      return `Stock item: ${p.name ?? "?"} (${p.base_units ?? "?"})`;
+    case "create_purchase_voucher":
+      return `Purchase voucher: ${p.supplier_invoice_number ?? "?"} · ₹${p.grand_total ?? "?"}`;
+    default:
+      return action.action ?? "?";
+  }
+}
+
+async function handleSendToTally() {
+  if (!pendingActions.length) return;
+  const companyName = currentCompany?.tallyReservedName || currentCompany?.name || "";
+  btnSendToTally.disabled = true;
+
+  for (let i = 0; i < pendingActions.length; i++) {
+    const { action } = pendingActions[i];
+    const rowId = `action-row-${i}`;
+    const statusCell = document.getElementById(`${rowId}-status`);
+    if (statusCell) { statusCell.textContent = "Running…"; statusCell.className = "actions-cell-status status-running"; }
+
+    let result;
+    try {
+      switch (action.action) {
+        case "create_ledger":
+          result = await window.appAuth.tallyCreateLedger({ companyName, params: action.params });
+          break;
+        case "create_stock_category":
+          result = await window.appAuth.tallyCreateStockCategory({ companyName, params: action.params });
+          break;
+        case "create_stock_item":
+          result = await window.appAuth.tallyCreateStockItem({ companyName, params: action.params });
+          break;
+        case "create_purchase_voucher":
+          result = await window.appAuth.tallyCreatePurchaseVoucher({ companyName, params: action.params });
+          break;
+        default:
+          result = { ok: false, error: `Unknown action: ${action.action}` };
+      }
+    } catch (e) {
+      result = { ok: false, error: e.message };
+    }
+
+    if (statusCell) {
+      if (result?.ok) {
+        statusCell.textContent = "Done";
+        statusCell.className = "actions-cell-status status-done";
+      } else {
+        statusCell.textContent = result?.error ?? "Failed";
+        statusCell.className = "actions-cell-status status-error";
+      }
+    }
+  }
+
+  btnSendToTally.disabled = false;
+  setCompanyPageMsg("Send to Tally complete.", "ok");
 }
 
 async function refreshPublicConfig() {
@@ -619,6 +752,7 @@ navHome?.addEventListener("click", () => showDashboard());
 
 btnAddMailbox?.addEventListener("click", () => openMailboxModal());
 btnAnalyze?.addEventListener("click", handleAnalyze);
+btnSendToTally?.addEventListener("click", handleSendToTally);
 btnModalMailboxClose?.addEventListener("click", () => closeMailboxModal());
 btnModalMailboxCancel?.addEventListener("click", () => closeMailboxModal());
 modalMailboxBackdrop?.addEventListener("click", () => closeMailboxModal());

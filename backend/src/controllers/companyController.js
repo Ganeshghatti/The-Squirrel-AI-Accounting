@@ -1,6 +1,11 @@
 import mongoose from "mongoose";
 import { ImapFlow } from "imapflow";
+import { simpleParser } from "mailparser";
+import { XMLParser } from "fast-xml-parser";
 import { Company } from "../models/Company.js";
+import { EmailAnalysis } from "../models/EmailAnalysis.js";
+import { classifyEmailBatch } from "../agents/emailClassifier.js";
+import { processInvoice } from "../agents/invoiceProcessor.js";
 
 export async function listCompanies(req, res, next) {
   try {
@@ -215,23 +220,62 @@ export async function disconnectMailbox(req, res, next) {
   }
 }
 
+/** Parse Tally DayBook XML → array of voucher objects for duplicate detection. */
+function parseVoucherXml(xml) {
+  if (!xml) return [];
+  try {
+    const parser = new XMLParser({ ignoreAttributes: false });
+    const parsed = parser.parse(xml);
+    const body = parsed?.ENVELOPE?.BODY ?? parsed?.BODY ?? parsed;
+    // Traverse to find VOUCHER nodes wherever they appear
+    const findVouchers = (obj) => {
+      if (!obj || typeof obj !== "object") return [];
+      if (Array.isArray(obj)) return obj.flatMap(findVouchers);
+      if ("VOUCHER" in obj) {
+        const v = obj.VOUCHER;
+        return (Array.isArray(v) ? v : [v]).map((vch) => ({
+          voucher_number: vch.VOUCHERNUMBER ?? "",
+          reference: vch.REFERENCE ?? "",
+          party_ledger: vch.PARTYLEDGERNAME ?? "",
+          date: vch.DATE ?? "",
+          amount: Number(vch.AMOUNT ?? 0),
+        }));
+      }
+      return Object.values(obj).flatMap(findVouchers);
+    };
+    return findVouchers(body);
+  } catch {
+    return [];
+  }
+}
+
+/** Parse Tally ledger/stockItem/unit XML → flat array of objects. */
+function parseTallyCollection(xml, tagName) {
+  if (!xml) return [];
+  try {
+    const parser = new XMLParser({ ignoreAttributes: false });
+    const parsed = parser.parse(xml);
+    const find = (obj) => {
+      if (!obj || typeof obj !== "object") return [];
+      if (Array.isArray(obj)) return obj.flatMap(find);
+      if (tagName in obj) {
+        const v = obj[tagName];
+        return Array.isArray(v) ? v : [v];
+      }
+      return Object.values(obj).flatMap(find);
+    };
+    return find(parsed);
+  } catch {
+    return [];
+  }
+}
+
 export async function analyzeCompany(req, res, next) {
   try {
-    const {
-      mailboxId,
-      fromDate,
-      toDate,
-      ledgerXml,
-      stockItemXml,
-      unitXml,
-      voucherXml,
-    } = req.body;
+    const { mailboxId, fromDate, toDate, ledgerXml, stockItemXml, unitXml, voucherXml } = req.body;
     if (!mailboxId || !fromDate || !toDate) {
-      return res
-        .status(400)
-        .json({ error: "mailboxId, fromDate, toDate are required" });
+      return res.status(400).json({ error: "mailboxId, fromDate, toDate are required" });
     }
-
     if (!mongoose.isValidObjectId(req.params.id)) {
       return res.status(400).json({ error: "Invalid company id" });
     }
@@ -241,16 +285,16 @@ export async function analyzeCompany(req, res, next) {
       owner: req.user._id,
       deletedAt: null,
     }).select("+connectedMailboxes.password");
-
     if (!company) return res.status(404).json({ error: "Company not found" });
 
     const mailbox = company.connectedMailboxes.id(mailboxId);
     if (!mailbox) return res.status(404).json({ error: "Mailbox not found" });
 
+    // ── 1. Fetch emails via IMAP with full source ──────────────────────────
     const since = new Date(fromDate + "T00:00:00");
     const before = new Date(toDate + "T23:59:59");
 
-    const client = new ImapFlow({
+    const imapClient = new ImapFlow({
       host: mailbox.imapHost,
       port: mailbox.imapPort,
       secure: mailbox.tls,
@@ -258,28 +302,214 @@ export async function analyzeCompany(req, res, next) {
       logger: false,
     });
 
-    const emails = [];
-    await client.connect();
-    const lock = await client.getMailboxLock("INBOX");
+    const rawEmails = [];
+    await imapClient.connect();
+    const lock = await imapClient.getMailboxLock("INBOX");
     try {
-      const uids = await client.search({ since, before });
-      for await (const msg of client.fetch(uids, { envelope: true })) {
-        emails.push({
-          date: msg.envelope.date,
-          from: msg.envelope.from,
-          to: msg.envelope.to,
-          subject: msg.envelope.subject,
-          messageId: msg.envelope.messageId,
-        });
+      const uids = await imapClient.search({ since, before });
+      for await (const msg of imapClient.fetch(uids, { envelope: true, source: true })) {
+        rawEmails.push({ uid: msg.uid, envelope: msg.envelope, source: msg.source });
       }
     } finally {
       lock.release();
-      await client.logout();
+      await imapClient.logout();
     }
+
+    if (rawEmails.length === 0) {
+      const analysis = await EmailAnalysis.create({
+        company: company._id,
+        mailboxId,
+        fromDate,
+        toDate,
+        summary: { total_emails: 0, invoices_found: 0, debit_notes_found: 0, duplicates_found: 0, needs_review: 0, not_invoices: 0 },
+        emailResults: [],
+      });
+      return res.json({ emailCount: 0, invoiceCount: 0, analysisId: analysis._id, invoiceEmails: [] });
+    }
+
+    // ── 2. Parse emails ────────────────────────────────────────────────────
+    const parsedEmails = await Promise.all(
+      rawEmails.map(async (raw) => {
+        const parsed = await simpleParser(raw.source);
+        const sender = raw.envelope.from?.[0]?.address ?? "";
+        const attachmentFilenames = (parsed.attachments ?? []).map((a) => a.filename ?? "").filter(Boolean);
+        return {
+          uid: raw.uid,
+          email_id: raw.envelope.messageId ?? `uid_${raw.uid}`,
+          subject: raw.envelope.subject ?? "(no subject)",
+          sender,
+          received_date: raw.envelope.date
+            ? new Date(raw.envelope.date).toISOString().slice(0, 10)
+            : fromDate,
+          body_preview: (parsed.text ?? parsed.html ?? "").slice(0, 800),
+          attachments: attachmentFilenames,
+          // keep full parsed for Agent 2
+          _parsed: parsed,
+        };
+      })
+    );
+
+    // ── 3. Parse Tally context ─────────────────────────────────────────────
+    const existingVouchers = parseVoucherXml(voucherXml);
+    const existingLedgers = parseTallyCollection(ledgerXml, "LEDGER").map((l) => ({
+      name: l["@_NAME"] ?? l.NAME ?? "",
+      parent: l.PARENT ?? "",
+      gstin: l.PARTYGSTIN ?? null,
+    }));
+    const existingStockItems = parseTallyCollection(stockItemXml, "STOCKITEM").map((s) => ({
+      name: s["@_NAME"] ?? s.NAME ?? "",
+      parent: s.PARENT ?? "",
+      base_units: s.BASEUNITS ?? "",
+      hsn: s.HSNCODE ?? "",
+    }));
+    const existingUnits = parseTallyCollection(unitXml, "UNIT").map((u) => ({
+      name: u["@_NAME"] ?? u.NAME ?? "",
+    }));
+
+    // ── 4. Agent 1: classify emails grouped by sender ─────────────────────
+    const bySender = {};
+    for (const e of parsedEmails) {
+      (bySender[e.sender] ??= []).push(e);
+    }
+
+    const classificationMap = {};
+    await Promise.all(
+      Object.entries(bySender).map(async ([sender, batch]) => {
+        try {
+          const result = await classifyEmailBatch({
+            sender,
+            emails: batch.map(({ email_id, subject, received_date, body_preview, attachments }) => ({
+              email_id, subject, received_date, body_preview, attachments,
+            })),
+            existing_vouchers: existingVouchers,
+          });
+          for (const r of result.results) {
+            classificationMap[r.email_id] = r;
+          }
+        } catch (err) {
+          // fallback: mark as needs_review
+          for (const e of batch) {
+            classificationMap[e.email_id] = {
+              email_id: e.email_id,
+              subject: e.subject,
+              received_date: e.received_date,
+              classification: "needs_review",
+              confidence: "low",
+              reason: `Agent 1 error: ${err.message}`,
+              preview: {},
+            };
+          }
+        }
+      })
+    );
+
+    // ── 5. Agent 2: process invoice/debit_note emails ─────────────────────
+    const tallyContext = {
+      company_state_code: company.tallyGuid?.slice(0, 2) ?? "",
+      existing_ledgers: existingLedgers,
+      existing_stock_items: existingStockItems,
+      existing_stock_categories: [],
+      existing_units: existingUnits,
+    };
+
+    const invoiceEmails = parsedEmails.filter((e) => {
+      const cls = classificationMap[e.email_id]?.classification;
+      return cls === "invoice" || cls === "debit_note";
+    });
+
+    const agentResults = await Promise.all(
+      invoiceEmails.map(async (e) => {
+        const classification = classificationMap[e.email_id];
+        // Find the PDF attachment (if any)
+        const pdfAttachment = e._parsed.attachments?.find(
+          (a) => a.contentType === "application/pdf" || (a.filename ?? "").toLowerCase().endsWith(".pdf")
+        );
+        const attachmentText = pdfAttachment
+          ? `[Attachment: ${pdfAttachment.filename}]`
+          : "";
+
+        try {
+          const agent2Result = await processInvoice({
+            email_id: e.email_id,
+            emailBody: e.body_preview,
+            attachmentText,
+            pdfBase64: null, // gpt-4o vision expects image formats; skip raw PDF
+            tallyContext,
+          });
+          return { email_id: e.email_id, agent2: agent2Result };
+        } catch (err) {
+          return {
+            email_id: e.email_id,
+            agent2: {
+              email_id: e.email_id,
+              confidence: "error",
+              confidence_reason: `Agent 2 error: ${err.message}`,
+              actions: [],
+              warnings: [],
+              errors: [err.message],
+              balance_check: { total_debit: 0, total_credit: 0, is_balanced: false },
+            },
+          };
+        }
+      })
+    );
+
+    const agent2Map = Object.fromEntries(agentResults.map((r) => [r.email_id, r.agent2]));
+
+    // ── 6. Build final results + save to DB ────────────────────────────────
+    const emailResults = parsedEmails.map((e) => {
+      const cls = classificationMap[e.email_id] ?? {};
+      const a2 = agent2Map[e.email_id];
+      return {
+        email_id: e.email_id,
+        subject: e.subject,
+        sender: e.sender,
+        received_date: e.received_date,
+        classification: cls.classification ?? "needs_review",
+        confidence: cls.confidence ?? "low",
+        reason: cls.reason ?? "",
+        preview: cls.preview ?? {},
+        actions: a2?.actions ?? [],
+        actionConfidence: a2?.confidence ?? null,
+        actionWarnings: a2?.warnings ?? [],
+        actionErrors: a2?.errors ?? [],
+        balance_check: a2?.balance_check ?? null,
+      };
+    });
+
+    // Aggregate summary from all sender batches
+    const summary = emailResults.reduce(
+      (acc, r) => {
+        acc.total_emails++;
+        if (r.classification === "invoice") acc.invoices_found++;
+        else if (r.classification === "debit_note") acc.debit_notes_found++;
+        else if (r.classification === "duplicate") acc.duplicates_found++;
+        else if (r.classification === "needs_review") acc.needs_review++;
+        else acc.not_invoices++;
+        return acc;
+      },
+      { total_emails: 0, invoices_found: 0, debit_notes_found: 0, duplicates_found: 0, needs_review: 0, not_invoices: 0 }
+    );
+
+    const analysis = await EmailAnalysis.create({
+      company: company._id,
+      mailboxId,
+      fromDate,
+      toDate,
+      summary,
+      emailResults,
+    });
+
+    const invoiceResults = emailResults.filter(
+      (r) => r.classification === "invoice" || r.classification === "debit_note"
+    );
+
     res.json({
-      emailCount: emails.length,
-      emails,
-      tallyData: { ledgerXml, stockItemXml, unitXml, voucherXml },
+      emailCount: emailResults.length,
+      invoiceCount: invoiceResults.length,
+      analysisId: analysis._id,
+      summary,
+      invoiceEmails: invoiceResults,
     });
   } catch (e) {
     next(e);

@@ -12,4 +12,8 @@ contextBridge.exposeInMainWorld("appAuth", {
   tallyReadStockItems: (p) => ipcRenderer.invoke("tally:readStockItems", p),
   tallyReadUnits: (p) => ipcRenderer.invoke("tally:readUnits", p),
   tallyReadDayBook: (p) => ipcRenderer.invoke("tally:readDayBook", p),
+  tallyCreateLedger: (p) => ipcRenderer.invoke("tally:createLedger", p),
+  tallyCreateStockCategory: (p) => ipcRenderer.invoke("tally:createStockCategory", p),
+  tallyCreateStockItem: (p) => ipcRenderer.invoke("tally:createStockItem", p),
+  tallyCreatePurchaseVoucher: (p) => ipcRenderer.invoke("tally:createPurchaseVoucher", p),
 });

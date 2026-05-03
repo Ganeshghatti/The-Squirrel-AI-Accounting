@@ -215,3 +215,121 @@ export async function voucher_cancel(params) {
 export async function voucher_deleteHard(params) {
   return tallyPost(envelopeVoucher_deleteHard(params));
 }
+
+export function envelopeVoucher_createPurchase({
+  companyName,
+  voucher_mode = "item_invoice",
+  posting_date,
+  supplier_invoice_number,
+  supplier_invoice_date,
+  party_ledger,
+  item_entries = [],
+  accounting_entries = [],
+  tax_entries = [],
+  additional_charges = [],
+  grand_total,
+  bill_type = "New Ref",
+  narration = "",
+}) {
+  const fmt = (n) => Math.abs(Number(n)).toFixed(2);
+
+  let inventoryXml = "";
+  if (voucher_mode === "item_invoice") {
+    for (const item of item_entries) {
+      inventoryXml += `
+          <ALLINVENTORYENTRIES.LIST>
+            <STOCKITEMNAME>${xs(item.stock_item_name)}</STOCKITEMNAME>
+            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+            <ACTUALQTY>${xs(String(item.quantity))} ${xs(item.unit)}</ACTUALQTY>
+            <BILLEDQTY>${xs(String(item.quantity))} ${xs(item.unit)}</BILLEDQTY>
+            <RATE>${xs(String(item.rate))}/${xs(item.unit)}</RATE>
+            <AMOUNT>-${xs(fmt(item.amount))}</AMOUNT>
+            <ACCOUNTINGALLOCATIONS.LIST>
+              <LEDGERNAME>${xs(item.purchase_ledger || "Purchase")}</LEDGERNAME>
+              <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+              <AMOUNT>-${xs(fmt(item.amount))}</AMOUNT>
+            </ACCOUNTINGALLOCATIONS.LIST>
+          </ALLINVENTORYENTRIES.LIST>`;
+    }
+  }
+
+  let ledgerXml = "";
+
+  if (voucher_mode === "accounting_invoice") {
+    for (const ae of accounting_entries) {
+      ledgerXml += `
+          <LEDGERENTRIES.LIST>
+            <LEDGERNAME>${xs(ae.ledger_name)}</LEDGERNAME>
+            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+            <AMOUNT>-${xs(fmt(ae.amount))}</AMOUNT>
+          </LEDGERENTRIES.LIST>`;
+    }
+  }
+
+  for (const tax of tax_entries) {
+    ledgerXml += `
+          <LEDGERENTRIES.LIST>
+            <LEDGERNAME>${xs(tax.ledger_name)}</LEDGERNAME>
+            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+            <AMOUNT>-${xs(fmt(tax.amount))}</AMOUNT>
+          </LEDGERENTRIES.LIST>`;
+  }
+
+  for (const ac of additional_charges) {
+    const isCredit = Number(ac.amount) < 0;
+    ledgerXml += `
+          <LEDGERENTRIES.LIST>
+            <LEDGERNAME>${xs(ac.ledger_name)}</LEDGERNAME>
+            <ISDEEMEDPOSITIVE>${isCredit ? "Yes" : "No"}</ISDEEMEDPOSITIVE>
+            <AMOUNT>${isCredit ? "" : "-"}${xs(fmt(ac.amount))}</AMOUNT>
+          </LEDGERENTRIES.LIST>`;
+  }
+
+  ledgerXml += `
+          <LEDGERENTRIES.LIST>
+            <LEDGERNAME>${xs(party_ledger)}</LEDGERNAME>
+            <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+            <AMOUNT>${xs(fmt(grand_total))}</AMOUNT>
+            <BILLALLOCATIONS.LIST>
+              <NAME>${xs(supplier_invoice_number)}</NAME>
+              <BILLTYPE>${xs(bill_type)}</BILLTYPE>
+              <AMOUNT>${xs(fmt(grand_total))}</AMOUNT>
+            </BILLALLOCATIONS.LIST>
+          </LEDGERENTRIES.LIST>`;
+
+  return `<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>Vouchers</REPORTNAME>
+        <STATICVARIABLES>
+          <SVCURRENTCOMPANY>${xs(companyName)}</SVCURRENTCOMPANY>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+      <REQUESTDATA>
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <VOUCHER VCHTYPE="Purchase" ACTION="Create" OBJVIEW="Invoice Voucher View">
+            <DATE>${xs(posting_date)}</DATE>
+            <NARRATION>${xs(narration)}</NARRATION>
+            <VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>
+            <REFERENCE>${xs(supplier_invoice_number)}</REFERENCE>
+            <REFERENCEDATE>${xs(supplier_invoice_date)}</REFERENCEDATE>
+            <PARTYLEDGERNAME>${xs(party_ledger)}</PARTYLEDGERNAME>
+            <ISINVOICE>Yes</ISINVOICE>
+            <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>
+            ${inventoryXml}
+            ${ledgerXml}
+          </VOUCHER>
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>`;
+}
+
+export async function voucher_createPurchase(params) {
+  return tallyPost(envelopeVoucher_createPurchase(params));
+}

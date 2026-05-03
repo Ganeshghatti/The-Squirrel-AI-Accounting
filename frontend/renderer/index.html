@@ -89,6 +89,32 @@
               </div>
               <button type="button" id="btn-analyze" class="primary">Analyze</button>
             </section>
+
+            <section class="company-section" id="actions-section" hidden>
+              <div class="company-section-head">
+                <div>
+                  <h3 class="dash-heading">Suggested Tally Actions</h3>
+                  <p class="muted small company-section-sub" id="actions-summary"></p>
+                </div>
+                <button type="button" id="btn-send-to-tally" class="primary">Send to Tally</button>
+              </div>
+              <div id="actions-table-wrap">
+                <table class="actions-table" id="actions-table">
+                  <thead>
+                    <tr>
+                      <th>Invoice</th>
+                      <th>Order</th>
+                      <th>Action</th>
+                      <th>Description</th>
+                      <th>Confidence</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="actions-tbody"></tbody>
+                </table>
+              </div>
+              <p id="actions-empty" class="muted small" hidden>No invoice emails found in the selected date range.</p>
+            </section>
           </div>
         </main>
       </section>
