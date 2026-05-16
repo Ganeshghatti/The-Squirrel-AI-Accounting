@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "dotenv": "^16.4.5",
-    "electron-store": "^10.0.0"
+    "electron-store": "^10.0.0",
+    "fast-xml-parser": "^5.8.0"
   },
   "devDependencies": {
     "electron": "^34.0.0"

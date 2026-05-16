@@ -1,5 +1,5 @@
 import { tallyPost } from "../client.js";
-import { xs } from "../xml.js";
+import { extractTallyCollectionReadXml, xs } from "../xml.js";
 
 /** @typedef {{ companyName?: string }} Co */
 
@@ -333,8 +333,18 @@ export async function ledger_readSingle(params) {
   return tallyPost(envelopeLedger_readSingle(params));
 }
 
+/** Strip empty Tally fields; keep only LEDGER records with data (for AI / API payloads). */
+export function extractLedgerReadAllXml(xml) {
+  return extractTallyCollectionReadXml(xml, {
+    recordTag: "LEDGER",
+    omitKeys: ["LANGUAGENAME.LIST"],
+  });
+}
+
 export async function ledger_readAll(params) {
-  return tallyPost(envelopeLedger_readAll(params));
+  const res = await tallyPost(envelopeLedger_readAll(params));
+  if (res.body) res.body = extractLedgerReadAllXml(res.body);
+  return res;
 }
 
 export async function ledger_readUnderGroup(params) {

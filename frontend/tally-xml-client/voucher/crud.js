@@ -1,5 +1,5 @@
 import { tallyPost } from "../client.js";
-import { xs } from "../xml.js";
+import { extractTallyVoucherDayBookXml, xs } from "../xml.js";
 
 /**
  * Read voucher by Master ID / GUID style identifier (Postman generic).
@@ -196,8 +196,15 @@ export async function voucher_readSingleByMasterId(params) {
   return tallyPost(envelopeVoucher_readSingleByMasterId(params));
 }
 
+/** Strip empty Tally fields; keep only VOUCHER nodes with data (Day Book export). */
+export function extractVoucherDayBookXml(xml) {
+  return extractTallyVoucherDayBookXml(xml);
+}
+
 export async function voucher_readDayBook(params) {
-  return tallyPost(envelopeVoucher_readDayBook(params));
+  const res = await tallyPost(envelopeVoucher_readDayBook(params));
+  if (res.body) res.body = extractVoucherDayBookXml(res.body);
+  return res;
 }
 
 export async function voucher_readSalesFiltered(params) {

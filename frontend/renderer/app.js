@@ -362,13 +362,6 @@ function renderCompanyMailboxes(mailboxes) {
   }
 }
 
-function stripEmptyXmlTags(xml) {
-  if (typeof xml !== "string") return "";
-  return xml
-    .replace(/<[A-Z][A-Z0-9.]*\/>/g, "")
-    .replace(/<[A-Z][A-Z0-9.]*><\/[A-Z][A-Z0-9.]*>/g, "");
-}
-
 async function handleAnalyze() {
   const radio = companyMailboxesList.querySelector('input[name="selected-mailbox"]:checked');
   if (!radio) {
@@ -403,10 +396,10 @@ async function handleAnalyze() {
       mailboxId: radio.value,
       fromDate: inputFromDate.value.slice(0, 10),
       toDate: inputToDate.value.slice(0, 10),
-      ledgerXml: stripEmptyXmlTags(ledgerRes?.body),
-      stockItemXml: stripEmptyXmlTags(stockItemRes?.body),
-      unitXml: stripEmptyXmlTags(unitRes?.body),
-      voucherXml: stripEmptyXmlTags(voucherRes?.body),
+      ledgerXml: ledgerRes?.body ?? "",
+      stockItemXml: stockItemRes?.body ?? "",
+      unitXml: unitRes?.body ?? "",
+      voucherXml: voucherRes?.body ?? "",
     },
   });
 

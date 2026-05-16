@@ -1,5 +1,5 @@
 import { tallyPost } from "../client.js";
-import { xs } from "../xml.js";
+import { extractTallyCollectionReadXml, xs } from "../xml.js";
 
 /** Minimal stock item */
 export function envelopeStockItem_createMinimal({ companyName, name, parent, baseUnits }) {
@@ -266,8 +266,18 @@ export async function stockItem_readSingle(params) {
   return tallyPost(envelopeStockItem_readSingle(params));
 }
 
+/** Strip empty Tally fields; keep only STOCKITEM records with data. */
+export function extractStockItemReadAllXml(xml) {
+  return extractTallyCollectionReadXml(xml, {
+    recordTag: "STOCKITEM",
+    omitKeys: ["LANGUAGENAME.LIST"],
+  });
+}
+
 export async function stockItem_readAll(params) {
-  return tallyPost(envelopeStockItem_readAll(params));
+  const res = await tallyPost(envelopeStockItem_readAll(params));
+  if (res.body) res.body = extractStockItemReadAllXml(res.body);
+  return res;
 }
 
 export async function stockItem_update(params) {

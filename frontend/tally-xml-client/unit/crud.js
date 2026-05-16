@@ -1,5 +1,5 @@
 import { tallyPost } from "../client.js";
-import { xs } from "../xml.js";
+import { extractTallyCollectionReadXml, xs } from "../xml.js";
 
 export function envelopeUnit_createSimple({
   companyName,
@@ -180,8 +180,15 @@ export async function unit_readSingle(params) {
   return tallyPost(envelopeUnit_readSingle(params));
 }
 
+/** Strip empty Tally fields; keep only UNIT records with data. */
+export function extractUnitReadAllXml(xml) {
+  return extractTallyCollectionReadXml(xml, { recordTag: "UNIT" });
+}
+
 export async function unit_readAll(params) {
-  return tallyPost(envelopeUnit_readAll(params));
+  const res = await tallyPost(envelopeUnit_readAll(params));
+  if (res.body) res.body = extractUnitReadAllXml(res.body);
+  return res;
 }
 
 export async function unit_update(params) {
