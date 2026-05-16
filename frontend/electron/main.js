@@ -9,6 +9,7 @@ import { stockItem_readAll, stockItem_createFull } from "../tally-xml-client/sto
 import { unit_readAll } from "../tally-xml-client/unit/crud.js";
 import { voucher_readDayBook, voucher_createPurchase } from "../tally-xml-client/voucher/crud.js";
 import { stockGroup_create } from "../tally-xml-client/stock-group/crud.js";
+import { buildTallyAnalyzeSnapshot } from "../tally-xml-client/tally-snapshot.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
@@ -123,6 +124,19 @@ ipcMain.handle("tally:readDayBook", async (_e, { companyName, fromDate, toDate }
     return await voucher_readDayBook({ companyName, fromDate, toDate });
   } catch (e) {
     return { ok: false, body: "", error: e instanceof Error ? e.message : "Tally request failed" };
+  }
+});
+
+/** Compact JSON from trimmed Tally read bodies (for POST /analyze). */
+ipcMain.handle("tally:buildAnalyzeSnapshot", async (_e, bodies) => {
+  try {
+    return { ok: true, snapshot: buildTallyAnalyzeSnapshot(bodies ?? {}) };
+  } catch (e) {
+    return {
+      ok: false,
+      snapshot: null,
+      error: e instanceof Error ? e.message : "Failed to build Tally snapshot",
+    };
   }
 });
 

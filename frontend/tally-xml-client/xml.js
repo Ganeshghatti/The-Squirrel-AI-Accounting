@@ -77,6 +77,27 @@ export function pruneEmptyXmlTree(value, { omitKeys = [] } = {}) {
   return value;
 }
 
+const VOUCHER_NOISE_KEY =
+  /^(IS|USE|HAS|IGNORE|VCHSTATUS|HASCASHFLOW|DIFFACTUALQTY|RESETIRN|CHANGEVCH|INCLUDEADV|OVRDNEWAYBILL|CMPGSTIS|PARTYGSTIS|IRN|GSTNOT|UPDATESUMMARY|ISEWAYBILL|ISDELETED|ISNULL|ISOPTIONAL|ISINVOICE|ISMST|ASORIGINAL|AUDITED|FORJOB|ALLOWCONSUMPTION)/i;
+
+/** Drop voucher noise scalars: "No", lone zeros, "Not Applicable", empty. */
+export function isTrivialVoucherScalar(value, key = "") {
+  if (value == null) return true;
+  const text =
+    typeof value === "object" && value !== null && "#text" in value
+      ? String(value["#text"]).trim()
+      : String(value).trim();
+  if (isBlankString(text)) return true;
+
+  const lower = text.toLowerCase();
+  if (lower === "no" && VOUCHER_NOISE_KEY.test(key)) return true;
+  if (lower === "not applicable" || lower.endsWith("not applicable")) return true;
+  if (/^-?0+(\.0+)?$/.test(text) && /^(ERRKEY|ALTERID|MASTERID|QRCODECRC|ECFEERATE|TEMP|IGN|ISGSTOVRDNCRC|REUSEHOLEID|VCHSTATUSDUMMY)/i.test(key)) {
+    return true;
+  }
+  return false;
+}
+
 export function parseTallyXml(xml) {
   if (!xml || typeof xml !== "string") return null;
   try {
@@ -197,8 +218,42 @@ export function extractTallyVoucherDayBookXml(xml) {
   const parsed = parseTallyXml(xml);
   if (!parsed) return xml;
 
+  const voucherOmit = [
+    "OLDAUDITENTRYIDS.LIST",
+    "OLDAUDITENTRIES.LIST",
+    "ACCOUNTAUDITENTRIES.LIST",
+    "AUDITENTRIES.LIST",
+    "DUTYHEADDETAILS.LIST",
+    "EWAYBILLDETAILS.LIST",
+    "EXCLUDEDTAXATIONS.LIST",
+    "GSTADVADJDETAILS.LIST",
+  ];
+
   const vouchers = recordsFromDayBookData(parsed)
-    .map((vch) => pruneEmptyXmlTree(vch))
+    .map((vch) => {
+      let node = pruneEmptyXmlTree(vch, { omitKeys: voucherOmit });
+      const walk = (obj, parentKey = "") => {
+        if (!obj || typeof obj !== "object") {
+          return isTrivialVoucherScalar(obj, parentKey) ? undefined : obj;
+        }
+        if (Array.isArray(obj)) {
+          const next = obj.map((item) => walk(item, parentKey)).filter((item) => !isEmptyXmlValue(item));
+          return next.length ? next : undefined;
+        }
+        const out = {};
+        for (const [key, raw] of Object.entries(obj)) {
+          if (key.startsWith("@_")) {
+            if (!isBlankString(raw)) out[key] = raw;
+            continue;
+          }
+          const pruned = walk(raw, key);
+          if (!isEmptyXmlValue(pruned) && !isTrivialVoucherScalar(pruned, key)) out[key] = pruned;
+        }
+        return Object.keys(out).length ? out : undefined;
+      };
+      node = walk(node);
+      return node;
+    })
     .filter((vch) => !isEmptyXmlValue(vch));
 
   if (!vouchers.length) {

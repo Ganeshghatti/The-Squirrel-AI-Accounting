@@ -387,6 +387,20 @@ async function handleAnalyze() {
     window.appAuth.tallyReadDayBook({ companyName, fromDate: fromTally, toDate: toTally }),
   ]);
 
+  setCompanyPageMsg("Preparing Tally context…", "");
+
+  const snapRes = await window.appAuth.tallyBuildAnalyzeSnapshot({
+    ledgerXml: ledgerRes?.body ?? "",
+    stockItemXml: stockItemRes?.body ?? "",
+    unitXml: unitRes?.body ?? "",
+    voucherXml: voucherRes?.body ?? "",
+  });
+  if (!snapRes?.ok || !snapRes.snapshot) {
+    btnAnalyze.disabled = false;
+    setCompanyPageMsg(snapRes?.error || "Failed to parse Tally data.", "error");
+    return;
+  }
+
   setCompanyPageMsg("Sending to backend…", "");
 
   const res = await window.appAuth.apiRequest({
@@ -396,10 +410,7 @@ async function handleAnalyze() {
       mailboxId: radio.value,
       fromDate: inputFromDate.value.slice(0, 10),
       toDate: inputToDate.value.slice(0, 10),
-      ledgerXml: ledgerRes?.body ?? "",
-      stockItemXml: stockItemRes?.body ?? "",
-      unitXml: unitRes?.body ?? "",
-      voucherXml: voucherRes?.body ?? "",
+      tallySnapshot: snapRes.snapshot,
     },
   });
 

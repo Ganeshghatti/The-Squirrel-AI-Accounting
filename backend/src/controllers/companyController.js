@@ -270,9 +270,18 @@ function parseTallyCollection(xml, tagName) {
   }
 }
 
+function tallyScalarText(value) {
+  if (value == null) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "object" && "#text" in value) return String(value["#text"]).trim();
+  return "";
+}
+
 export async function analyzeCompany(req, res, next) {
   try {
-    const { mailboxId, fromDate, toDate, ledgerXml, stockItemXml, unitXml, voucherXml } = req.body;
+    const { mailboxId, fromDate, toDate, tallySnapshot, ledgerXml, stockItemXml, unitXml, voucherXml } =
+      req.body;
     if (!mailboxId || !fromDate || !toDate) {
       return res.status(400).json({ error: "mailboxId, fromDate, toDate are required" });
     }
@@ -349,22 +358,38 @@ export async function analyzeCompany(req, res, next) {
       })
     );
 
-    // ── 3. Parse Tally context ─────────────────────────────────────────────
-    const existingVouchers = parseVoucherXml(voucherXml);
-    const existingLedgers = parseTallyCollection(ledgerXml, "LEDGER").map((l) => ({
-      name: l["@_NAME"] ?? l.NAME ?? "",
-      parent: l.PARENT ?? "",
-      gstin: l.PARTYGSTIN ?? null,
-    }));
-    const existingStockItems = parseTallyCollection(stockItemXml, "STOCKITEM").map((s) => ({
-      name: s["@_NAME"] ?? s.NAME ?? "",
-      parent: s.PARENT ?? "",
-      base_units: s.BASEUNITS ?? "",
-      hsn: s.HSNCODE ?? "",
-    }));
-    const existingUnits = parseTallyCollection(unitXml, "UNIT").map((u) => ({
-      name: u["@_NAME"] ?? u.NAME ?? "",
-    }));
+    // ── 3. Tally context (prefer compact JSON snapshot from desktop app) ───
+    let existingVouchers;
+    let existingLedgers;
+    let existingStockItems;
+    let existingUnits;
+
+    if (tallySnapshot && typeof tallySnapshot === "object") {
+      existingVouchers = Array.isArray(tallySnapshot.existing_vouchers)
+        ? tallySnapshot.existing_vouchers
+        : [];
+      existingLedgers = Array.isArray(tallySnapshot.existing_ledgers) ? tallySnapshot.existing_ledgers : [];
+      existingStockItems = Array.isArray(tallySnapshot.existing_stock_items)
+        ? tallySnapshot.existing_stock_items
+        : [];
+      existingUnits = Array.isArray(tallySnapshot.existing_units) ? tallySnapshot.existing_units : [];
+    } else {
+      existingVouchers = parseVoucherXml(voucherXml);
+      existingLedgers = parseTallyCollection(ledgerXml, "LEDGER").map((l) => ({
+        name: l["@_NAME"] ?? tallyScalarText(l.NAME),
+        parent: tallyScalarText(l.PARENT),
+        gstin: tallyScalarText(l.PARTYGSTIN) || null,
+      }));
+      existingStockItems = parseTallyCollection(stockItemXml, "STOCKITEM").map((s) => ({
+        name: s["@_NAME"] ?? tallyScalarText(s.NAME),
+        parent: tallyScalarText(s.PARENT),
+        base_units: tallyScalarText(s.BASEUNITS),
+        hsn: tallyScalarText(s.HSNCODE) || undefined,
+      }));
+      existingUnits = parseTallyCollection(unitXml, "UNIT").map((u) => ({
+        name: u["@_NAME"] ?? tallyScalarText(u.NAME),
+      }));
+    }
 
     // ── 4. Agent 1: classify emails grouped by sender ─────────────────────
     const bySender = {};
@@ -408,7 +433,9 @@ export async function analyzeCompany(req, res, next) {
       company_state_code: company.tallyGuid?.slice(0, 2) ?? "",
       existing_ledgers: existingLedgers,
       existing_stock_items: existingStockItems,
-      existing_stock_categories: [],
+      existing_stock_categories: Array.isArray(tallySnapshot?.existing_stock_categories)
+        ? tallySnapshot.existing_stock_categories
+        : [],
       existing_units: existingUnits,
     };
 
